@@ -14,17 +14,83 @@
     <artifactId>trino-deploy</artifactId>
     <version>1.0-SNAPSHOT</version>
 
-    <packaging>pom</packaging>
+    <packaging>jar</packaging>
+
     <properties>
-        <air.check.skip-enforcer>true</air.check.skip-enforcer>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
-        <air.check.skip-checkstyle>true</air.check.skip-checkstyle>
+        <air.check.skip-all>true</air.check.skip-all>
+        <air.check.skip-spotbugs>true</air.check.skip-spotbugs>
+        <air.check.skip-pmd>true</air.check.skip-pmd>
+        <air.check.skip-jacoco>true</air.check.skip-jacoco>
+        <air.check.skip-sytle>true</air.check.skip-sytle>
+        <air.test.thread-count>0</air.test.thread-count>
+        <!--声明了airlift的版本-->
+        <dep.airlift.version>223</dep.airlift.version>
+        <!--license header检查开关-->
+        <air.check.skip-license>true</air.check.skip-license>
+        <!--确保项目构建和打包时使用相同版本的airbase-->
+        <dep.packaging.version>${dep.airlift.version}</dep.packaging.version>
+        <!--项目使用的JDK版本-->
+        <project.build.targetJdk>17</project.build.targetJdk>
     </properties>
 
-    <modules>
-        <module>my-airlift</module>
-    </modules>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>bom</artifactId>
+                <version>${dep.airlift.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.google.inject</groupId>
+            <artifactId>guice</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>javax.ws.rs</groupId>
+            <artifactId>javax.ws.rs-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>bootstrap</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>http-server</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>json</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>node</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>event</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>jaxrs</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.testng</groupId>
+            <artifactId>testng</artifactId>
+        </dependency>
+    </dependencies>
 
     <build>
         <plugins>
@@ -32,14 +98,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <failIfNoTests>false</failIfNoTests>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>pl.project13.maven</groupId>
-                <artifactId>git-commit-id-plugin</artifactId>
-                <configuration>
-                    <failOnNoGitDirectory>false</failOnNoGitDirectory>
+                    <skipTests>true</skipTests>
                 </configuration>
             </plugin>
         </plugins>

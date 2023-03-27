@@ -1,4 +1,4 @@
-package com.zuoye.my.airlift.resource;
+package com.zuoye.my.io.airlift.resource;
 
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;

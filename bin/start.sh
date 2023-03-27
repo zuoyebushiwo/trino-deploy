@@ -1,0 +1,1 @@
+java -agentlib:jdwp=transport=dt_socket,address=127.0.0.1:51896,suspend=y,server=n -Dconfig=etc/config.properties -Dfile.encoding=UTF-8 com.zuoye.my.io.airlift.Service
