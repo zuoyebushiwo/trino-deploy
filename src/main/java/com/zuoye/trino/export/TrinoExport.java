@@ -4,6 +4,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import io.trino.jdbc.TrinoDriver;
 
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.sql.*;
@@ -82,9 +83,10 @@ public class TrinoExport {
 
             List<String> tables = mapEntry.getValue();
 
-            FileWriter fileWriter = new FileWriter(file);
+            BufferedWriter fileWriter = new BufferedWriter(new FileWriter(file));
 
-            AtomicInteger errorTable = new AtomicInteger();
+
+            AtomicInteger count = new AtomicInteger();
             CountDownLatch tableLatch = new CountDownLatch(tables.size());
             for (String table : tables) {
                 String fullTableName = "hive." + mapEntry.getKey() + "." + table;
@@ -93,9 +95,20 @@ public class TrinoExport {
                          PreparedStatement statement = connection.prepareStatement("show create table " + fullTableName);
                          ResultSet resultSet = statement.executeQuery()) {
                         while (resultSet.next()) {
-                            fileWriter.append("drop table " + fullTableName + ";");
-                            fileWriter.append("\n");
-                            fileWriter.append(resultSet.getString(1) + ";");
+                            synchronized (fileWriter) {
+                                fileWriter.newLine();
+                                fileWriter.newLine();
+                                fileWriter.append("drop table " + fullTableName + ";");
+
+                                fileWriter.newLine();
+                                fileWriter.append(resultSet.getString(1) + ";");
+                                count.addAndGet(1);
+                                if (count.get() % 100 == 0) {
+                                    System.out.println("完成100张表写入:" + mapEntry.getKey());
+                                    fileWriter.flush();
+                                    count.set(0);
+                                }
+                            }
                         }
                     } catch (Exception e) {
 //                        e.printStackTrace();
@@ -107,6 +120,7 @@ public class TrinoExport {
             }
             tableLatch.await(10, TimeUnit.MINUTES);
             System.out.println("完成schema文件写入：" + mapEntry.getKey());
+            fileWriter.flush();
             fileWriter.close();
         }
 
