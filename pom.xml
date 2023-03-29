@@ -145,6 +145,12 @@
             <groupId>io.airlift</groupId>
             <artifactId>jmx-http-rpc</artifactId>
         </dependency>
+
+        <dependency>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-jdbc</artifactId>
+            <version>368</version>
+        </dependency>
     </dependencies>
 
     <build>
