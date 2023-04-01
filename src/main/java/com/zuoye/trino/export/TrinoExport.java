@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * @author ZhangXueJun
+ * @author ZuoYe
  * @Date 2023年03月29日
  */
 public class TrinoExport {
