@@ -3,3 +3,5 @@
 /yl_saas_prd
 /zxj
 log.txt
+/var/
+/trino-deploy-antlr4/target/

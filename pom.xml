@@ -16,6 +16,10 @@
 
     <packaging>pom</packaging>
 
+    <modules>
+        <module>trino-deploy-antlr4</module>
+    </modules>
+
     <properties>
         <air.check.skip-all>true</air.check.skip-all>
         <air.check.skip-spotbugs>true</air.check.skip-spotbugs>
