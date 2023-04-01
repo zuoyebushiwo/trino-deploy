@@ -5,7 +5,7 @@ import io.airlift.configuration.Config;
 import javax.validation.constraints.NotBlank;
 
 /**
- * @author ZhangXueJun
+ * @author ZuoYe
  * @Date 2023年03月28日
  */
 public class ServiceConfig {

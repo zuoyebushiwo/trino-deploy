@@ -14,7 +14,7 @@ import io.airlift.node.NodeModule;
 import org.weakref.jmx.guice.MBeanModule;
 
 /**
- * @author ZhangXueJun
+ * @author ZuoYe
  * @Date 2023年03月27日
  */
 public class Service {

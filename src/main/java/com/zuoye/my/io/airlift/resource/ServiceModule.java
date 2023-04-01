@@ -7,7 +7,7 @@ import io.airlift.jaxrs.JaxrsBinder;
 import org.weakref.jmx.guice.ExportBinder;
 
 /**
- * @author ZhangXueJun
+ * @author ZuoYe
  * @Date 2023年03月27日
  */
 public class ServiceModule implements Module {
