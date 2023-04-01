@@ -1,5 +1,9 @@
 grammar Calculator;
 
+@header {
+    package com.zuoye.trino.delopy.anltr4.calculator.parse;
+}
+
 INT    : [0-9]+;
 DOUBLE : [0-9]+'.'[0-9]+;
 WS     : [ \t\r\n]+ -> skip;
