@@ -27,6 +27,7 @@ public class TrinoExport {
     private static final ExecutorService threadPool = Executors.newFixedThreadPool(10);
 
     public static void main(String[] args) throws Exception {
+        long starTime = System.currentTimeMillis();
         List<String> schemas = Lists.newArrayList();
 
         TrinoExport export = new TrinoExport();
@@ -124,7 +125,7 @@ public class TrinoExport {
             fileWriter.close();
         }
 
-        System.out.println("写入文件完毕");
+        System.out.println("写入文件完毕,耗时：" + (System.currentTimeMillis() - starTime) / 1000 + "秒！");
     }
 
     public Connection getConnection() throws Exception {
@@ -132,7 +133,7 @@ public class TrinoExport {
         Class.forName(TrinoDriver.class.getName());
 
         // properties
-        String url = "jdbc:trino://localhost:64319/hive";
+        String url = "jdbc:trino://localhost:63228/hive";
         Properties properties = new Properties();
         properties.setProperty("user", "ad_hoc");
         Connection connection = DriverManager.getConnection(url, properties);
