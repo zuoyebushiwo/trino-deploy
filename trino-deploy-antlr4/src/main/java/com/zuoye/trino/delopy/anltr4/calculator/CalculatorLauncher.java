@@ -4,6 +4,7 @@ import com.google.common.collect.ImmutableMap;
 import com.zuoye.trino.delopy.anltr4.calculator.parse.CalculatorLexer;
 import com.zuoye.trino.delopy.anltr4.calculator.parse.CalculatorParser;
 import com.zuoye.trino.delopy.anltr4.calculator.type.DataType;
+import com.zuoye.trino.delopy.anltr4.calculator.visitor.CodeGenerateVisitor;
 import com.zuoye.trino.delopy.anltr4.calculator.visitor.DefaultCalculatorVisitor;
 import org.antlr.v4.runtime.CharStream;
 import org.antlr.v4.runtime.CharStreams;
@@ -55,9 +56,14 @@ public class CalculatorLauncher {
         /**
          * 第一步：Convert AST to AlgebraNode(validating)
          */
+        CodeGenerateVisitor visitor = new CodeGenerateVisitor(dataTypes);
 
         /**
-         * 第二步：
+         * 第二步：用AlgebraNode自动生成代码：janino
+         */
+
+        /**
+         * 第三部：根据参数执行
          */
         return null;
     }
