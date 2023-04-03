@@ -18,6 +18,7 @@
 
     <modules>
         <module>trino-deploy-antlr4</module>
+        <module>trino-deploy-parser</module>
     </modules>
 
     <properties>

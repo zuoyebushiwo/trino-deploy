@@ -5,3 +5,5 @@
 log.txt
 /var/
 /trino-deploy-antlr4/target/
+/trino-deploy-parser/target/
+/target/
