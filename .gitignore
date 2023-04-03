@@ -4,6 +4,5 @@
 /zxj
 log.txt
 /var/
-/trino-deploy-antlr4/target/
-/trino-deploy-parser/target/
-/target/
+target
+/trino-deploy-planner/target/
