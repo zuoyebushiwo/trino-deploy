@@ -23,6 +23,12 @@
             <artifactId>trino-deploy-parser</artifactId>
             <version>${parent.version}</version>
         </dependency>
+
+        <dependency>
+            <groupId>com.zuoye</groupId>
+            <artifactId>trino-deploy-spi</artifactId>
+            <version>${parent.version}</version>
+        </dependency>
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
