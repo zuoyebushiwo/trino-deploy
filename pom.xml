@@ -21,6 +21,7 @@
         <module>trino-deploy-spi</module>
         <module>trino-deploy-parser</module>
         <module>trino-deploy-planner</module>
+        <module>trino-deploy-main</module>
     </modules>
 
     <properties>

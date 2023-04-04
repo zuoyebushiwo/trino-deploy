@@ -35,4 +35,16 @@ public abstract class AstVisitor<R, C> {
     public R visitSymbolReference(SymbolReference node, C context) {
         return visitExpression(node, context);
     }
+
+    public R visitIdentifier(Identifier node, C context) {
+        return visitExpression(node, context);
+    }
+
+    public R visitPathElement(PathElement node, C context) {
+        return visitNode(node, context);
+    }
+
+    public R visitPathSpecification(PathSpecification node, C context) {
+        return visitNode(node, context);
+    }
 }
