@@ -1,3 +1,16 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.trino.spi.type;
 
 import com.fasterxml.jackson.annotation.JsonValue;
@@ -5,19 +18,15 @@ import com.fasterxml.jackson.annotation.JsonValue;
 import javax.annotation.concurrent.Immutable;
 import java.util.*;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static io.trino.spi.type.StandardTypes.TIME_WITH_TIME_ZONE;
 import static io.trino.spi.type.TypeSignatureParameter.typeParameter;
 import static java.lang.String.format;
 import static java.util.Arrays.asList;
 import static java.util.stream.Collectors.toUnmodifiableList;
 
-/**
- * @author ZhangXueJun
- * @Date 2023年04月04日
- */
 @Immutable
-public class TypeSignature {
+public final class TypeSignature
+{
     private static final String TIMESTAMP_WITH_TIME_ZONE = "timestamp with time zone";
     private static final String TIMESTAMP_WITHOUT_TIME_ZONE = "timestamp without time zone";
 
