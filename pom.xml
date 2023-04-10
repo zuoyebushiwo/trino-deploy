@@ -25,6 +25,7 @@
         <module>trino-deploy-client</module>
         <module>trino-deploy-plugin-toolkit</module>
         <module>trino-deploy-array</module>
+        <module>trino-deploy-memory-context</module>
     </modules>
 
     <properties>

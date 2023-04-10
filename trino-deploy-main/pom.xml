@@ -39,6 +39,19 @@
 
         <dependency>
             <groupId>com.zuoye</groupId>
+            <artifactId>trino-deploy-planner</artifactId>
+            <version>${parent.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.zuoye</groupId>
+            <artifactId>trino-deploy-memory-context</artifactId>
+            <version>${parent.version}</version>
+        </dependency>
+
+
+        <dependency>
+            <groupId>com.zuoye</groupId>
             <artifactId>trino-deploy-plugin-toolkit</artifactId>
             <version>${parent.version}</version>
         </dependency>

@@ -14,6 +14,7 @@ import io.trino.server.ProtocolConfig;
 import io.trino.server.ServerConfig;
 import io.trino.server.SessionContext;
 import io.trino.server.protocol.QueryInfoUrlFactory;
+import io.trino.server.protocol.Slug;
 import io.trino.spi.ErrorCode;
 import io.trino.spi.QueryId;
 
