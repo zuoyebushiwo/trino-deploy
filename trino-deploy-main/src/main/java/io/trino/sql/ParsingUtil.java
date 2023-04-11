@@ -11,22 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.sql.planner.optimizations;
+package io.trino.sql;
 
 import io.trino.Session;
-import io.trino.execution.warnings.WarningCollector;
-import io.trino.sql.planner.PlanNodeIdAllocator;
-import io.trino.sql.planner.SymbolAllocator;
-import io.trino.sql.planner.TypeProvider;
-import io.trino.sql.planner.plan.PlanNode;
+import io.trino.sql.parser.ParsingOptions;
 
-public interface PlanOptimizer
+import static io.trino.SystemSessionProperties.isParseDecimalLiteralsAsDouble;
+import static io.trino.sql.parser.ParsingOptions.DecimalLiteralTreatment.AS_DECIMAL;
+import static io.trino.sql.parser.ParsingOptions.DecimalLiteralTreatment.AS_DOUBLE;
+
+public final class ParsingUtil
 {
-    PlanNode optimize(
-            PlanNode plan,
-            Session session,
-            TypeProvider types,
-            SymbolAllocator symbolAllocator,
-            PlanNodeIdAllocator idAllocator,
-            WarningCollector warningCollector);
+    public static ParsingOptions createParsingOptions(Session session)
+    {
+        return new ParsingOptions(isParseDecimalLiteralsAsDouble(session) ? AS_DOUBLE : AS_DECIMAL);
+    }
+
+    private ParsingUtil() {}
 }

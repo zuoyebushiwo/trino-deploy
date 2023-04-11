@@ -17,15 +17,19 @@ import io.trino.server.protocol.QueryInfoUrlFactory;
 import io.trino.server.protocol.Slug;
 import io.trino.spi.ErrorCode;
 import io.trino.spi.QueryId;
+import io.trino.spi.security.Identity;
 
 import javax.annotation.Nullable;
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import javax.annotation.concurrent.ThreadSafe;
 import javax.inject.Inject;
+import javax.servlet.http.HttpServletRequest;
+import javax.ws.rs.POST;
 import javax.ws.rs.Path;
+import javax.ws.rs.Produces;
 import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.core.Response;
-import javax.ws.rs.core.UriBuilder;
-import javax.ws.rs.core.UriInfo;
+import javax.ws.rs.core.*;
 
 import java.net.URI;
 import java.util.Optional;
@@ -38,14 +42,18 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.clearspring.analytics.util.Preconditions.checkState;
 import static com.google.common.base.MoreObjects.firstNonNull;
+import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.util.concurrent.Futures.nonCancellationPropagating;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
+import static io.trino.server.HttpRequestSessionContextFactory.AUTHENTICATED_IDENTITY;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
+import static javax.ws.rs.core.Response.Status.BAD_REQUEST;
 import static javax.ws.rs.core.Response.Status.NOT_FOUND;
 
 @Path("/v1/statement")
@@ -88,6 +96,53 @@ public class QueuedStatementResource {
 
         requireNonNull(queryManagerConfig, "queryManagerConfig is null");
         queryManager = new QueryManager(queryManagerConfig.getClientTimeout());
+    }
+
+
+    @PostConstruct
+    public void start()
+    {
+        queryManager.initialize(dispatchManager);
+    }
+
+    @PreDestroy
+    public void stop()
+    {
+        queryManager.destroy();
+    }
+
+    @ResourceSecurity(AUTHENTICATED_USER)
+    @POST
+    @Produces(APPLICATION_JSON)
+    public Response postStatement(
+            String statement,
+            @Context HttpServletRequest servletRequest,
+            @Context HttpHeaders httpHeaders,
+            @Context UriInfo uriInfo)
+    {
+        if (isNullOrEmpty(statement)) {
+            throw badRequest(BAD_REQUEST, "SQL statement is empty");
+        }
+
+        Query query = registerQuery(statement, servletRequest, httpHeaders);
+
+        return createQueryResultsResponse(query.getQueryResults(query.getLastToken(), uriInfo));
+    }
+
+    private Query registerQuery(String statement, HttpServletRequest servletRequest, HttpHeaders httpHeaders)
+    {
+        Optional<String> remoteAddress = Optional.ofNullable(servletRequest.getRemoteAddr());
+        Optional<Identity> identity = Optional.ofNullable((Identity) servletRequest.getAttribute(AUTHENTICATED_IDENTITY));
+        MultivaluedMap<String, String> headers = httpHeaders.getRequestHeaders();
+
+        SessionContext sessionContext = sessionContextFactory.createSessionContext(headers, alternateHeaderName, remoteAddress, identity);
+        Query query = new Query(statement, sessionContext, dispatchManager, queryInfoUrlFactory);
+        queryManager.registerQuery(query);
+
+        // let authentication filter know that identity lifecycle has been handed off
+        servletRequest.setAttribute(AUTHENTICATED_IDENTITY, null);
+
+        return query;
     }
 
     private static final class Query

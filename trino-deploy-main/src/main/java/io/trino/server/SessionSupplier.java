@@ -11,22 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.sql.planner.optimizations;
+package io.trino.server;
 
 import io.trino.Session;
-import io.trino.execution.warnings.WarningCollector;
-import io.trino.sql.planner.PlanNodeIdAllocator;
-import io.trino.sql.planner.SymbolAllocator;
-import io.trino.sql.planner.TypeProvider;
-import io.trino.sql.planner.plan.PlanNode;
+import io.trino.spi.QueryId;
 
-public interface PlanOptimizer
+public interface SessionSupplier
 {
-    PlanNode optimize(
-            PlanNode plan,
-            Session session,
-            TypeProvider types,
-            SymbolAllocator symbolAllocator,
-            PlanNodeIdAllocator idAllocator,
-            WarningCollector warningCollector);
+    Session createSession(QueryId queryId, SessionContext context);
 }
