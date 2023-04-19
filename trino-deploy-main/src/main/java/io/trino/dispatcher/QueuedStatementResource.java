@@ -1,6 +1,7 @@
 package io.trino.dispatcher;
 
 import com.google.common.collect.Ordering;
+import com.google.common.util.concurrent.FluentFuture;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
 import io.airlift.log.Logger;
@@ -15,6 +16,7 @@ import io.trino.server.ServerConfig;
 import io.trino.server.SessionContext;
 import io.trino.server.protocol.QueryInfoUrlFactory;
 import io.trino.server.protocol.Slug;
+import io.trino.server.security.ResourceSecurity;
 import io.trino.spi.ErrorCode;
 import io.trino.spi.QueryId;
 import io.trino.spi.security.Identity;
@@ -25,18 +27,14 @@ import javax.annotation.PreDestroy;
 import javax.annotation.concurrent.ThreadSafe;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
-import javax.ws.rs.POST;
-import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
-import javax.ws.rs.WebApplicationException;
+import javax.ws.rs.*;
+import javax.ws.rs.container.AsyncResponse;
+import javax.ws.rs.container.Suspended;
 import javax.ws.rs.core.*;
 
 import java.net.URI;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -46,13 +44,18 @@ import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.util.concurrent.Futures.nonCancellationPropagating;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
+import static io.airlift.jaxrs.AsyncResponseHandler.bindAsyncResponse;
 import static io.trino.server.HttpRequestSessionContextFactory.AUTHENTICATED_IDENTITY;
+import static io.trino.server.protocol.Slug.Context.QUEUED_QUERY;
+import static io.trino.server.security.ResourceSecurity.AccessType.AUTHENTICATED_USER;
+import static io.trino.server.security.ResourceSecurity.AccessType.PUBLIC;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static javax.ws.rs.core.MediaType.APPLICATION_JSON;
+import static javax.ws.rs.core.MediaType.TEXT_PLAIN_TYPE;
 import static javax.ws.rs.core.Response.Status.BAD_REQUEST;
 import static javax.ws.rs.core.Response.Status.NOT_FOUND;
 
@@ -129,6 +132,46 @@ public class QueuedStatementResource {
         return createQueryResultsResponse(query.getQueryResults(query.getLastToken(), uriInfo));
     }
 
+    @ResourceSecurity(PUBLIC)
+    @GET
+    @Path("queued/{queryId}/{slug}/{token}")
+    @Produces(APPLICATION_JSON)
+    public void getStatus(
+            @PathParam("queryId") QueryId queryId,
+            @PathParam("slug") String slug,
+            @PathParam("token") long token,
+            @QueryParam("maxWait") Duration maxWait,
+            @Context UriInfo uriInfo,
+            @Suspended AsyncResponse asyncResponse)
+    {
+        Query query = getQuery(queryId, slug, token);
+
+        ListenableFuture<Response> future = getStatus(query, token, maxWait, uriInfo);
+        bindAsyncResponse(asyncResponse, future, responseExecutor);
+    }
+
+    private ListenableFuture<Response> getStatus(Query query, long token, Duration maxWait, UriInfo uriInfo)
+    {
+        long waitMillis = WAIT_ORDERING.min(MAX_WAIT_TIME, maxWait).toMillis();
+
+        return FluentFuture.from(query.waitForDispatched())
+                // wait for query to be dispatched, up to the wait timeout
+                .withTimeout(waitMillis, MILLISECONDS, timeoutExecutor)
+                .catching(TimeoutException.class, ignored -> null, directExecutor())
+                // when state changes, fetch the next result
+                .transform(ignored -> query.getQueryResults(token, uriInfo), responseExecutor)
+                .transform(this::createQueryResultsResponse, directExecutor());
+    }
+
+    private Query getQuery(QueryId queryId, String slug, long token)
+    {
+        Query query = queryManager.getQuery(queryId);
+        if (query == null || !query.getSlug().isValid(QUEUED_QUERY, slug, token)) {
+            throw badRequest(NOT_FOUND, "Query not found");
+        }
+        return query;
+    }
+
     private Query registerQuery(String statement, HttpServletRequest servletRequest, HttpHeaders httpHeaders)
     {
         Optional<String> remoteAddress = Optional.ofNullable(servletRequest.getRemoteAddr());
@@ -143,6 +186,24 @@ public class QueuedStatementResource {
         servletRequest.setAttribute(AUTHENTICATED_IDENTITY, null);
 
         return query;
+    }
+
+    private Response createQueryResultsResponse(QueryResults results)
+    {
+        Response.ResponseBuilder builder = Response.ok(results);
+        if (!compressionEnabled) {
+            builder.encoding("identity");
+        }
+        return builder.build();
+    }
+
+    private static WebApplicationException badRequest(Response.Status status, String message)
+    {
+        throw new WebApplicationException(
+                Response.status(status)
+                        .type(TEXT_PLAIN_TYPE)
+                        .entity(message)
+                        .build());
     }
 
     private static final class Query

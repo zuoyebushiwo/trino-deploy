@@ -136,4 +136,218 @@ public class DispatchManager
     {
         return queryIdGenerator.createNextQueryId();
     }
+
+    public ListenableFuture<Void> createQuery(QueryId queryId, Slug slug, SessionContext sessionContext, String query)
+    {
+        requireNonNull(queryId, "queryId is null");
+        requireNonNull(sessionContext, "sessionContext is null");
+        requireNonNull(query, "query is null");
+        checkArgument(!query.isEmpty(), "query must not be empty string");
+        checkArgument(queryTracker.tryGetQuery(queryId).isEmpty(), "query %s already exists", queryId);
+
+        // It is important to return a future implementation which ignores cancellation request.
+        // Using NonCancellationPropagatingFuture is not enough; it does not propagate cancel to wrapped future
+        // but it would still return true on call to isCancelled() after cancel() is called on it.
+        DispatchQueryCreationFuture queryCreationFuture = new DispatchQueryCreationFuture();
+        dispatchExecutor.execute(() -> {
+            try {
+                createQueryInternal(queryId, slug, sessionContext, query, resourceGroupManager);
+            }
+            finally {
+                queryCreationFuture.set(null);
+            }
+        });
+        return queryCreationFuture;
+    }
+
+    /**
+     * Creates and registers a dispatch query with the query tracker.  This method will never fail to register a query with the query
+     * tracker.  If an error occurs while creating a dispatch query, a failed dispatch will be created and registered.
+     */
+    private <C> void createQueryInternal(QueryId queryId, Slug slug, SessionContext sessionContext, String query, ResourceGroupManager<C> resourceGroupManager)
+    {
+        Session session = null;
+        PreparedQuery preparedQuery = null;
+        try {
+            if (query.length() > maxQueryLength) {
+                int queryLength = query.length();
+                query = query.substring(0, maxQueryLength);
+                throw new TrinoException(QUERY_TEXT_TOO_LARGE, format("Query text length (%s) exceeds the maximum length (%s)", queryLength, maxQueryLength));
+            }
+
+            // decode session
+            session = sessionSupplier.createSession(queryId, sessionContext);
+
+            // check query execute permissions
+            accessControl.checkCanExecuteQuery(sessionContext.getIdentity());
+
+            // prepare query
+            preparedQuery = queryPreparer.prepareQuery(session, query);
+
+            // select resource group
+            Optional<String> queryType = getQueryType(preparedQuery.getStatement()).map(Enum::name);
+            SelectionContext<C> selectionContext = resourceGroupManager.selectGroup(new SelectionCriteria(
+                    sessionContext.getIdentity().getPrincipal().isPresent(),
+                    sessionContext.getIdentity().getUser(),
+                    sessionContext.getIdentity().getGroups(),
+                    sessionContext.getSource(),
+                    sessionContext.getClientTags(),
+                    sessionContext.getResourceEstimates(),
+                    queryType));
+
+            // apply system default session properties (does not override user set properties)
+            session = sessionPropertyDefaults.newSessionWithDefaultProperties(session, queryType, selectionContext.getResourceGroupId());
+
+            // mark existing transaction as active
+            transactionManager.activateTransaction(session, isTransactionControlStatement(preparedQuery.getStatement()), accessControl);
+
+            DispatchQuery dispatchQuery = dispatchQueryFactory.createDispatchQuery(
+                    session,
+                    query,
+                    preparedQuery,
+                    slug,
+                    selectionContext.getResourceGroupId());
+
+            boolean queryAdded = queryCreated(dispatchQuery);
+            if (queryAdded && !dispatchQuery.isDone()) {
+                try {
+                    resourceGroupManager.submit(dispatchQuery, selectionContext, dispatchExecutor);
+                }
+                catch (Throwable e) {
+                    // dispatch query has already been registered, so just fail it directly
+                    dispatchQuery.fail(e);
+                }
+            }
+        }
+        catch (Throwable throwable) {
+            // creation must never fail, so register a failed query in this case
+            if (session == null) {
+                session = Session.builder(sessionPropertyManager)
+                        .setQueryId(queryId)
+                        .setIdentity(sessionContext.getIdentity())
+                        .setSource(sessionContext.getSource().orElse(null))
+                        .build();
+            }
+            Optional<String> preparedSql = Optional.ofNullable(preparedQuery).flatMap(PreparedQuery::getPrepareSql);
+            DispatchQuery failedDispatchQuery = failedDispatchQueryFactory.createFailedDispatchQuery(session, query, preparedSql, Optional.empty(), throwable);
+            queryCreated(failedDispatchQuery);
+        }
+    }
+
+    private boolean queryCreated(DispatchQuery dispatchQuery)
+    {
+        boolean queryAdded = queryTracker.addQuery(dispatchQuery);
+
+        // only add state tracking if this query instance will actually be used for the execution
+        if (queryAdded) {
+            dispatchQuery.addStateChangeListener(newState -> {
+                if (newState.isDone()) {
+                    // execution MUST be added to the expiration queue or there will be a leak
+                    queryTracker.expireQuery(dispatchQuery.getQueryId());
+                }
+            });
+            stats.trackQueryStats(dispatchQuery);
+        }
+
+        return queryAdded;
+    }
+
+    public ListenableFuture<Void> waitForDispatched(QueryId queryId)
+    {
+        return queryTracker.tryGetQuery(queryId)
+                .map(dispatchQuery -> {
+                    dispatchQuery.recordHeartbeat();
+                    return dispatchQuery.getDispatchedFuture();
+                })
+                .orElseGet(Futures::immediateVoidFuture);
+    }
+
+    public List<BasicQueryInfo> getQueries()
+    {
+        return queryTracker.getAllQueries().stream()
+                .map(DispatchQuery::getBasicQueryInfo)
+                .collect(toImmutableList());
+    }
+
+    @Managed
+    public long getQueuedQueries()
+    {
+        return queryTracker.getAllQueries().stream()
+                .filter(query -> query.getState() == QUEUED)
+                .count();
+    }
+
+    @Managed
+    public long getRunningQueries()
+    {
+        return queryTracker.getAllQueries().stream()
+                .filter(query -> query.getState() == RUNNING && !query.getBasicQueryInfo().getQueryStats().isFullyBlocked())
+                .count();
+    }
+
+    public boolean isQueryRegistered(QueryId queryId)
+    {
+        return queryTracker.tryGetQuery(queryId).isPresent();
+    }
+
+    public DispatchQuery getQuery(QueryId queryId)
+    {
+        return queryTracker.getQuery(queryId);
+    }
+
+    public BasicQueryInfo getQueryInfo(QueryId queryId)
+    {
+        return queryTracker.getQuery(queryId).getBasicQueryInfo();
+    }
+
+    public Optional<QueryInfo> getFullQueryInfo(QueryId queryId)
+    {
+        return queryTracker.tryGetQuery(queryId).map(DispatchQuery::getFullQueryInfo);
+    }
+
+    public Optional<DispatchInfo> getDispatchInfo(QueryId queryId)
+    {
+        return queryTracker.tryGetQuery(queryId)
+                .map(dispatchQuery -> {
+                    dispatchQuery.recordHeartbeat();
+                    return dispatchQuery.getDispatchInfo();
+                });
+    }
+
+    public void cancelQuery(QueryId queryId)
+    {
+        queryTracker.tryGetQuery(queryId)
+                .ifPresent(DispatchQuery::cancel);
+    }
+
+    public void failQuery(QueryId queryId, Throwable cause)
+    {
+        requireNonNull(cause, "cause is null");
+
+        queryTracker.tryGetQuery(queryId)
+                .ifPresent(query -> query.fail(cause));
+    }
+
+    private static class DispatchQueryCreationFuture
+            extends AbstractFuture<Void>
+    {
+        @Override
+        protected boolean set(Void value)
+        {
+            return super.set(value);
+        }
+
+        @Override
+        protected boolean setException(Throwable throwable)
+        {
+            return super.setException(throwable);
+        }
+
+        @Override
+        public boolean cancel(boolean mayInterruptIfRunning)
+        {
+            // query submission cannot be canceled
+            return false;
+        }
+    }
 }

@@ -11,49 +11,40 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.sql.planner;
+package io.trino.execution;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonValue;
-import io.trino.sql.tree.Expression;
-import io.trino.sql.tree.SymbolReference;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import java.util.Objects;
+
+import static com.google.common.base.MoreObjects.toStringHelper;
 import static java.util.Objects.requireNonNull;
 
-public class Symbol
-        implements Comparable<Symbol>
+public final class Column
 {
     private final String name;
-
-    public static Symbol from(Expression expression)
-    {
-        checkArgument(expression instanceof SymbolReference, "Unexpected expression: %s", expression);
-        return new Symbol(((SymbolReference) expression).getName());
-    }
+    private final String type;
 
     @JsonCreator
-    public Symbol(String name)
+    public Column(
+            @JsonProperty("name") String name,
+            @JsonProperty("type") String type)
     {
-        requireNonNull(name, "name is null");
-        this.name = name;
+        this.name = requireNonNull(name, "name is null");
+        this.type = requireNonNull(type, "type is null");
     }
 
-    @JsonValue
+    @JsonProperty
     public String getName()
     {
         return name;
     }
 
-    public SymbolReference toSymbolReference()
+    @JsonProperty
+    public String getType()
     {
-        return new SymbolReference(name);
-    }
-
-    @Override
-    public String toString()
-    {
-        return name;
+        return type;
     }
 
     @Override
@@ -66,20 +57,24 @@ public class Symbol
             return false;
         }
 
-        Symbol symbol = (Symbol) o;
+        Column that = (Column) o;
 
-        return name.equals(symbol.name);
+        return Objects.equals(this.name, that.name) &&
+                Objects.equals(this.type, that.type);
     }
 
     @Override
     public int hashCode()
     {
-        return name.hashCode();
+        return Objects.hash(name, type);
     }
 
     @Override
-    public int compareTo(Symbol o)
+    public String toString()
     {
-        return name.compareTo(o.name);
+        return toStringHelper(this)
+                .addValue(name)
+                .addValue(type)
+                .toString();
     }
 }
