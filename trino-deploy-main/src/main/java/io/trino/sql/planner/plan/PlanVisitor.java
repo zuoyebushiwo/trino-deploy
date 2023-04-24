@@ -8,5 +8,9 @@ public abstract class PlanVisitor<R, C> {
 
     protected abstract R visitPlan(PlanNode node, C context);
 
+    public R visitTableScan(TableScanNode node, C context)
+    {
+        return visitPlan(node, context);
+    }
 
 }

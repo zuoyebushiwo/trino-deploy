@@ -1,5 +1,19 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package io.trino.dispatcher;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Ordering;
 import com.google.common.util.concurrent.FluentFuture;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -8,8 +22,10 @@ import io.airlift.log.Logger;
 import io.airlift.units.Duration;
 import io.trino.client.QueryError;
 import io.trino.client.QueryResults;
+import io.trino.client.StatementStats;
 import io.trino.execution.ExecutionFailureInfo;
 import io.trino.execution.QueryManagerConfig;
+import io.trino.execution.QueryState;
 import io.trino.server.HttpRequestSessionContextFactory;
 import io.trino.server.ProtocolConfig;
 import io.trino.server.ServerConfig;
@@ -31,7 +47,7 @@ import javax.ws.rs.*;
 import javax.ws.rs.container.AsyncResponse;
 import javax.ws.rs.container.Suspended;
 import javax.ws.rs.core.*;
-
+import javax.ws.rs.core.Response.Status;
 import java.net.URI;
 import java.util.Optional;
 import java.util.concurrent.*;
@@ -45,7 +61,11 @@ import static com.google.common.util.concurrent.Futures.nonCancellationPropagati
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.jaxrs.AsyncResponseHandler.bindAsyncResponse;
+import static io.trino.execution.QueryState.FAILED;
+import static io.trino.execution.QueryState.QUEUED;
 import static io.trino.server.HttpRequestSessionContextFactory.AUTHENTICATED_IDENTITY;
+import static io.trino.server.protocol.QueryInfoUrlFactory.getQueryInfoUri;
+import static io.trino.server.protocol.Slug.Context.EXECUTING_QUERY;
 import static io.trino.server.protocol.Slug.Context.QUEUED_QUERY;
 import static io.trino.server.security.ResourceSecurity.AccessType.AUTHENTICATED_USER;
 import static io.trino.server.security.ResourceSecurity.AccessType.PUBLIC;
@@ -60,8 +80,8 @@ import static javax.ws.rs.core.Response.Status.BAD_REQUEST;
 import static javax.ws.rs.core.Response.Status.NOT_FOUND;
 
 @Path("/v1/statement")
-public class QueuedStatementResource {
-
+public class QueuedStatementResource
+{
     private static final Logger log = Logger.get(QueuedStatementResource.class);
     private static final Duration MAX_WAIT_TIME = new Duration(1, SECONDS);
     private static final Ordering<Comparable<Duration>> WAIT_ORDERING = Ordering.natural().nullsLast();
@@ -101,7 +121,6 @@ public class QueuedStatementResource {
         queryManager = new QueryManager(queryManagerConfig.getClientTimeout());
     }
 
-
     @PostConstruct
     public void start()
     {
@@ -130,6 +149,22 @@ public class QueuedStatementResource {
         Query query = registerQuery(statement, servletRequest, httpHeaders);
 
         return createQueryResultsResponse(query.getQueryResults(query.getLastToken(), uriInfo));
+    }
+
+    private Query registerQuery(String statement, HttpServletRequest servletRequest, HttpHeaders httpHeaders)
+    {
+        Optional<String> remoteAddress = Optional.ofNullable(servletRequest.getRemoteAddr());
+        Optional<Identity> identity = Optional.ofNullable((Identity) servletRequest.getAttribute(AUTHENTICATED_IDENTITY));
+        MultivaluedMap<String, String> headers = httpHeaders.getRequestHeaders();
+
+        SessionContext sessionContext = sessionContextFactory.createSessionContext(headers, alternateHeaderName, remoteAddress, identity);
+        Query query = new Query(statement, sessionContext, dispatchManager, queryInfoUrlFactory);
+        queryManager.registerQuery(query);
+
+        // let authentication filter know that identity lifecycle has been handed off
+        servletRequest.setAttribute(AUTHENTICATED_IDENTITY, null);
+
+        return query;
     }
 
     @ResourceSecurity(PUBLIC)
@@ -163,28 +198,26 @@ public class QueuedStatementResource {
                 .transform(this::createQueryResultsResponse, directExecutor());
     }
 
+    @ResourceSecurity(PUBLIC)
+    @DELETE
+    @Path("queued/{queryId}/{slug}/{token}")
+    @Produces(APPLICATION_JSON)
+    public Response cancelQuery(
+            @PathParam("queryId") QueryId queryId,
+            @PathParam("slug") String slug,
+            @PathParam("token") long token)
+    {
+        getQuery(queryId, slug, token)
+                .cancel();
+        return Response.noContent().build();
+    }
+
     private Query getQuery(QueryId queryId, String slug, long token)
     {
         Query query = queryManager.getQuery(queryId);
         if (query == null || !query.getSlug().isValid(QUEUED_QUERY, slug, token)) {
             throw badRequest(NOT_FOUND, "Query not found");
         }
-        return query;
-    }
-
-    private Query registerQuery(String statement, HttpServletRequest servletRequest, HttpHeaders httpHeaders)
-    {
-        Optional<String> remoteAddress = Optional.ofNullable(servletRequest.getRemoteAddr());
-        Optional<Identity> identity = Optional.ofNullable((Identity) servletRequest.getAttribute(AUTHENTICATED_IDENTITY));
-        MultivaluedMap<String, String> headers = httpHeaders.getRequestHeaders();
-
-        SessionContext sessionContext = sessionContextFactory.createSessionContext(headers, alternateHeaderName, remoteAddress, identity);
-        Query query = new Query(statement, sessionContext, dispatchManager, queryInfoUrlFactory);
-        queryManager.registerQuery(query);
-
-        // let authentication filter know that identity lifecycle has been handed off
-        servletRequest.setAttribute(AUTHENTICATED_IDENTITY, null);
-
         return query;
     }
 
@@ -197,7 +230,47 @@ public class QueuedStatementResource {
         return builder.build();
     }
 
-    private static WebApplicationException badRequest(Response.Status status, String message)
+    private static URI getQueuedUri(QueryId queryId, Slug slug, long token, UriInfo uriInfo)
+    {
+        return uriInfo.getBaseUriBuilder()
+                .replacePath("/v1/statement/queued/")
+                .path(queryId.toString())
+                .path(slug.makeSlug(QUEUED_QUERY, token))
+                .path(String.valueOf(token))
+                .replaceQuery("")
+                .build();
+    }
+
+    private static QueryResults createQueryResults(
+            QueryId queryId,
+            URI nextUri,
+            Optional<QueryError> queryError,
+            UriInfo uriInfo,
+            Optional<URI> queryInfoUrl,
+            Duration elapsedTime,
+            Duration queuedTime)
+    {
+        QueryState state = queryError.map(error -> FAILED).orElse(QUEUED);
+        return new QueryResults(
+                queryId.toString(),
+                getQueryInfoUri(queryInfoUrl, queryId, uriInfo),
+                null,
+                nextUri,
+                null,
+                null,
+                StatementStats.builder()
+                        .setState(state.toString())
+                        .setQueued(state == QUEUED)
+                        .setElapsedTimeMillis(elapsedTime.toMillis())
+                        .setQueuedTimeMillis(queuedTime.toMillis())
+                        .build(),
+                queryError.orElse(null),
+                ImmutableList.of(),
+                null,
+                null);
+    }
+
+    private static WebApplicationException badRequest(Status status, String message)
     {
         throw new WebApplicationException(
                 Response.status(status)
@@ -282,7 +355,7 @@ public class QueuedStatementResource {
             long lastToken = this.lastToken.get();
             // token should be the last token or the next token
             if (token != lastToken && token != lastToken + 1) {
-                throw new WebApplicationException(Response.Status.GONE);
+                throw new WebApplicationException(Status.GONE);
             }
             // advance (or stay at) the token
             this.lastToken.compareAndSet(lastToken, token);

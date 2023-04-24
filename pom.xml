@@ -26,6 +26,7 @@
         <module>trino-deploy-plugin-toolkit</module>
         <module>trino-deploy-array</module>
         <module>trino-deploy-memory-context</module>
+        <module>trino-deploy-matching</module>
     </modules>
 
     <properties>
